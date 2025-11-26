@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora de Costos Lightbox 3D (ID Personalizado)</title>
+    <title>Calculadora de Costos Lightbox 3D (ID Personalizado - FIX)</title>
     
     <!-- Tailwind CSS CDN para un diseño responsive y moderno -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -403,13 +403,32 @@
         }
 
         /**
+         * Muestra la app y oculta el overlay de carga.
+         * @param {string} message - Mensaje de estado a mostrar.
+         */
+        const hideOverlayAndShowApp = (message) => {
+            document.getElementById('auth-status').innerText = message;
+            document.getElementById('loading-overlay').classList.add('hidden');
+            document.getElementById('app').classList.remove('hidden');
+        };
+
+
+        /**
          * Intenta cargar los datos usando el UID de datos proporcionado.
+         * @param {string} uid - El UID de Firestore a usar.
+         * @param {boolean} isFirstLoad - Si es la carga inicial después de la autenticación.
          */
         async function loadDataFromUid(uid, isFirstLoad = false) {
-            if (!uid) return;
+            if (!uid) {
+                if (isFirstLoad) hideOverlayAndShowApp('No se pudo obtener el ID de usuario. Trabajando sin persistencia.');
+                return;
+            }
 
             const docRef = getDataDocRef(uid);
-            if (!docRef) return;
+            if (!docRef) {
+                if (isFirstLoad) hideOverlayAndShowApp('Error interno al preparar la base de datos.');
+                return;
+            }
 
             try {
                 const docSnap = await getDoc(docRef);
@@ -417,11 +436,12 @@
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     applyLoadedData(data);
-                    document.getElementById('auth-status').innerText = 'Datos de ' + currentCustomId + ' cargados con éxito.';
+                    document.getElementById('auth-status').innerText = 'Datos de ' + (currentCustomId || 'Sesión Temporal') + ' cargados con éxito.';
                 } else {
                     // Si no hay datos, inicializar con los ejemplos y guardar bajo este nuevo UID.
                     console.log("No se encontraron datos para este UID. Usando valores iniciales y guardando.");
-                    document.getElementById('auth-status').innerText = 'ID establecido. Usando valores iniciales. (Guardado automático).';
+                    document.getElementById('auth-status').innerText = (currentCustomId ? `ID '${currentCustomId}' establecido.` : 'Sesión iniciada.') + ' Usando valores iniciales.';
+                    
                     // Aplicar valores por defecto a los inputs y luego guardar
                     applyLoadedData({ 
                         baseCostsInputs: gatherDataForSaving().baseCostsInputs, // Obtiene valores iniciales del HTML
@@ -432,11 +452,11 @@
             } catch (e) {
                 console.error("Error al cargar de Firestore:", e);
                 customAlert(`Error al cargar los datos: ${e.message}`, 'Error de Carga');
+                document.getElementById('auth-status').innerText = `Error al cargar datos. Trabajando en modo solo lectura.`;
             } finally {
                 if (isFirstLoad) {
                     // Ocultar overlay y mostrar app solo en la carga inicial
-                    document.getElementById('loading-overlay').classList.add('hidden');
-                    document.getElementById('app').classList.remove('hidden');
+                    hideOverlayAndShowApp('Sesión iniciada. Listo para calcular.');
                 }
             }
         }
@@ -481,7 +501,8 @@
                     document.getElementById('auth-status').innerText = `ID encontrado. Cargando datos de '${requestedKey}'.`;
                     
                     // 2. Cargar los datos del UID encontrado
-                    await loadDataFromUid(dataUid);
+                    // isFirstLoad=false ya que la app ya está mostrada.
+                    await loadDataFromUid(dataUid, false); 
 
                 } else {
                     // 1. El ID Personalizado NO existe. Asignar el ID de sesión actual.
@@ -494,7 +515,7 @@
                     document.getElementById('auth-status').innerText = `ID '${requestedKey}' establecido y guardado. Inicia sesión con este ID la próxima vez.`;
                     
                     // 3. Cargar los datos (que serán los iniciales, o los que estaban en la sesión actual)
-                    await loadDataFromUid(dataUid);
+                    await loadDataFromUid(dataUid, false);
                 }
                 
                 document.getElementById('current-custom-id').innerText = `ID Activo: ${currentCustomId}`;
@@ -532,14 +553,16 @@
             displayResults();         // Muestra el resultado
         }
 
-        // --- FIREBASE INICIALIZACIÓN Y AUTENTICACIÓN ---
+        // --- FIREBASE INICIALIZACIÓN Y AUTENTICACIÓN (REFORZADA) ---
 
         async function initFirebase() {
             try {
+                // 1. Inicializar Firebase
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
 
+                // 2. Autenticar (temporal o con token)
                 const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 
                 if (authToken) {
@@ -548,30 +571,28 @@
                     await signInAnonymously(auth);
                 }
                 
+                // 3. Listener para el estado de autenticación
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
                         sessionUid = user.uid; // El ID de sesión seguro
                         dataUid = sessionUid;  // Inicialmente, dataUid es el sessionUid
                         
-                        // Si no hay custom ID, cargamos los datos privados asociados al UID (si existen)
-                        // Esto actúa como una caché si el usuario regresa sin un custom ID
+                        // loadDataFromUid ahora es responsable de llamar a hideOverlayAndShowApp(true)
                         await loadDataFromUid(sessionUid, true); 
 
                     } else {
-                        // Si falla, mostrar error de carga
+                        // Fallo en la autenticación después de la inicialización
                         sessionUid = null;
                         dataUid = null;
-                        document.getElementById('auth-status').innerText = 'Error de autenticación. No se puede guardar.';
-                        document.getElementById('loading-overlay').classList.add('hidden');
-                        document.getElementById('app').classList.remove('hidden');
+                        hideOverlayAndShowApp('Error de autenticación. Trabajando en modo solo lectura/sin guardar.');
                     }
                 });
 
             } catch (e) {
-                console.error("Error al inicializar Firebase:", e);
-                customAlert(`No se pudo conectar a la base de datos: ${e.message}`, 'Error de Conexión');
-                document.getElementById('loading-overlay').classList.add('hidden');
-                document.getElementById('app').classList.remove('hidden');
+                // Si algo falla en la inicialización o autenticación crítica (e.g., config error)
+                console.error("Error crítico al inicializar Firebase:", e);
+                customAlert(`No se pudo conectar a la base de datos: ${e.message}`, 'Error de Conexión Crítico');
+                hideOverlayAndShowApp('Error de conexión. Trabajando en modo solo lectura/sin guardar.');
             }
         }
 
