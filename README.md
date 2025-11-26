@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora de Costos Lightbox 3D (Persistente)</title>
+    <title>Calculadora de Costos Lightbox 3D (ID Personalizado)</title>
     
     <!-- Tailwind CSS CDN para un diseño responsive y moderno -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -73,11 +73,21 @@
         <div class="flex flex-col md:flex-row md:justify-between md:items-start mb-6 border-b pb-4">
             <h1 class="text-3xl font-bold text-gray-800 mb-4 md:mb-0">LightBox 3D: Costos</h1>
             
-            <div class="text-right text-sm text-gray-700 bg-blue-50 p-3 rounded-lg border border-blue-200">
-                <p class="font-semibold text-blue-600 mb-1">ID de Sesión Persistente</p>
-                <p class="mb-2 text-xs text-gray-600">Este código único guarda tus datos en la nube:</p>
-                <span id="user-id-display" class="font-mono text-xs text-blue-800 bg-blue-200 p-2 rounded-lg break-all">Cargando...</span>
-                <p id="auth-status" class="text-xs mt-2 font-medium"></p>
+            <div class="text-left md:text-right text-sm text-gray-700 bg-blue-50 p-3 rounded-lg border border-blue-200 w-full md:w-96">
+                <p class="font-semibold text-blue-600 mb-1">ID de Datos Personalizado</p>
+                <p class="mb-2 text-xs text-gray-600">Usa un ID corto (ej: "MiTienda") para guardar y cargar tus costos.</p>
+                
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input type="text" id="custom-id-input" placeholder="Ingresa tu ID corto" class="p-2 border border-gray-300 rounded-lg flex-grow text-sm">
+                    <button onclick="loadDataByCustomKey()" class="py-1.5 px-3 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 transition duration-150 ease-in-out whitespace-nowrap">
+                        Cargar / Establecer ID
+                    </button>
+                </div>
+
+                <p id="current-custom-id" class="mt-2 font-mono text-sm text-blue-800 bg-blue-200 p-2 rounded-lg break-all hidden">ID Activo: Cargando...</p>
+
+                <p id="auth-status" class="text-xs mt-2 font-medium text-gray-600">Sesión autenticada. (Establece un ID para guardar)</p>
+                
                 <button onclick="saveDataToFirestore(true)" id="save-button" class="mt-3 w-full py-1.5 px-3 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition duration-150 ease-in-out">
                     Guardar Ahora (Guardado Automático OK)
                 </button>
@@ -260,8 +270,7 @@
         // Importaciones de Firebase
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Establecer nivel de log para depuración de Firestore
         setLogLevel('Debug');
@@ -273,7 +282,10 @@
 
         let db;
         let auth;
-        let userId = null;
+        let sessionUid = null; // El UID del usuario actualmente autenticado (largo)
+        let dataUid = null;    // El UID del usuario cuyos datos estamos cargando/guardando (puede ser igual a sessionUid o diferente si se carga por Custom ID)
+        let currentCustomId = null; // El ID corto que el usuario está usando
+        
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
         const initialModels = [ // Modelos de ejemplo si no hay datos guardados
@@ -297,15 +309,26 @@
         // --- FUNCIONES DE PERSISTENCIA DE DATOS (FIREBASE) ---
 
         /**
-         * Retorna la referencia al documento Firestore privado del usuario.
+         * Retorna la referencia al documento Firestore privado del usuario activo.
          */
-        function getDataDocRef() {
-            if (!db || !userId) {
-                console.error("Firebase no está inicializado o el usuario no está autenticado.");
+        function getDataDocRef(uid) {
+            if (!db || !uid) {
+                console.error("Firebase no está inicializado o el UID de datos no está definido.");
                 return null;
             }
-            // Ruta: /artifacts/{appId}/users/{userId}/cost_data/data_doc
-            return doc(db, 'artifacts', appId, 'users', userId, 'cost_data', 'data_doc');
+            // Ruta: /artifacts/{appId}/users/{uid}/cost_data/data_doc
+            return doc(db, 'artifacts', appId, 'users', uid, 'cost_data', 'data_doc');
+        }
+
+        /**
+         * Retorna la referencia al documento de mapeo de ID público.
+         */
+        function getMappingDocRef(customId) {
+            if (!db) return null;
+            // Ruta: /artifacts/{appId}/public/data/id_mapping/{customId}
+            const cleanId = customId.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (!cleanId) return null;
+            return doc(db, 'artifacts', appId, 'public', 'data', 'id_mapping', cleanId);
         }
 
         /**
@@ -329,8 +352,8 @@
          * @param {boolean} isManual - Indica si el guardado fue forzado por el usuario.
          */
         async function saveDataToFirestore(isManual = false) {
-            if (!userId) {
-                if (isManual) customAlert("Aún no se ha establecido la sesión. Por favor, espera un momento y vuelve a intentarlo.", "Guardado Fallido");
+            if (!dataUid || !currentCustomId) {
+                if (isManual) customAlert("Aún no has establecido un 'ID de Datos Personalizado'. Por favor, ingrésalo y haz clic en 'Cargar / Establecer ID' primero.", "Guardado Fallido");
                 return;
             }
 
@@ -344,9 +367,18 @@
                 }
 
                 const dataToSave = gatherDataForSaving();
-                const docRef = getDataDocRef();
+                const docRef = getDataDocRef(dataUid);
+                
                 if (docRef) {
+                    // 1. Guardar los datos de costos en el documento privado del dataUid
                     await setDoc(docRef, dataToSave);
+                    
+                    // 2. Asegurar que el mapeo público exista (Custom ID -> dataUid)
+                    const mappingRef = getMappingDocRef(currentCustomId);
+                    if (mappingRef) {
+                         await setDoc(mappingRef, { uid: dataUid, last_saved: new Date() }, { merge: true });
+                    }
+
                     if (isManual) {
                         saveButton.innerHTML = '¡Guardado con Éxito!';
                         setTimeout(() => {
@@ -371,12 +403,12 @@
         }
 
         /**
-         * Carga los datos de Firestore y los aplica a la interfaz.
+         * Intenta cargar los datos usando el UID de datos proporcionado.
          */
-        async function loadDataFromFirestore() {
-            if (!userId) return;
+        async function loadDataFromUid(uid, isFirstLoad = false) {
+            if (!uid) return;
 
-            const docRef = getDataDocRef();
+            const docRef = getDataDocRef(uid);
             if (!docRef) return;
 
             try {
@@ -385,11 +417,11 @@
                 if (docSnap.exists()) {
                     const data = docSnap.data();
                     applyLoadedData(data);
-                    document.getElementById('auth-status').innerText = 'Datos personales cargados de la nube.';
+                    document.getElementById('auth-status').innerText = 'Datos de ' + currentCustomId + ' cargados con éxito.';
                 } else {
-                    // Si no hay datos, inicializar con los ejemplos y guardar.
-                    console.log("No se encontraron datos para este usuario. Usando valores iniciales y guardando.");
-                    document.getElementById('auth-status').innerText = 'Usando valores iniciales. (Guardado automático).';
+                    // Si no hay datos, inicializar con los ejemplos y guardar bajo este nuevo UID.
+                    console.log("No se encontraron datos para este UID. Usando valores iniciales y guardando.");
+                    document.getElementById('auth-status').innerText = 'ID establecido. Usando valores iniciales. (Guardado automático).';
                     // Aplicar valores por defecto a los inputs y luego guardar
                     applyLoadedData({ 
                         baseCostsInputs: gatherDataForSaving().baseCostsInputs, // Obtiene valores iniciales del HTML
@@ -401,9 +433,76 @@
                 console.error("Error al cargar de Firestore:", e);
                 customAlert(`Error al cargar los datos: ${e.message}`, 'Error de Carga');
             } finally {
-                // Ocultar overlay y mostrar app
-                document.getElementById('loading-overlay').classList.add('hidden');
-                document.getElementById('app').classList.remove('hidden');
+                if (isFirstLoad) {
+                    // Ocultar overlay y mostrar app solo en la carga inicial
+                    document.getElementById('loading-overlay').classList.add('hidden');
+                    document.getElementById('app').classList.remove('hidden');
+                }
+            }
+        }
+
+        /**
+         * Lógica principal para establecer o cargar un Custom ID.
+         */
+        async function loadDataByCustomKey() {
+            if (!sessionUid) {
+                customAlert("Por favor, espera a que se autentique la sesión inicial.", "Aún Cargando");
+                return;
+            }
+
+            const input = document.getElementById('custom-id-input');
+            const requestedKey = input.value.trim();
+
+            if (!requestedKey) {
+                customAlert("Debes ingresar un nombre corto (ej: 'MiTienda') para poder guardar o cargar tus datos.", "ID Requerido");
+                return;
+            }
+            
+            // Limpiar el ID para el path de Firestore
+            const cleanKey = requestedKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            if (cleanKey.length < 3) {
+                customAlert("El ID de Datos Personalizado debe contener al menos 3 caracteres alfanuméricos.", "ID Invalido");
+                return;
+            }
+
+            const mappingRef = getMappingDocRef(cleanKey);
+            document.getElementById('auth-status').innerText = `Buscando datos de '${requestedKey}'...`;
+            
+            try {
+                const mappingSnap = await getDoc(mappingRef);
+
+                if (mappingSnap.exists()) {
+                    // 1. El ID Personalizado YA existe. Usar el UID asociado.
+                    const mappingData = mappingSnap.data();
+                    dataUid = mappingData.uid; // Usar el UID asociado
+                    currentCustomId = requestedKey;
+                    
+                    document.getElementById('auth-status').innerText = `ID encontrado. Cargando datos de '${requestedKey}'.`;
+                    
+                    // 2. Cargar los datos del UID encontrado
+                    await loadDataFromUid(dataUid);
+
+                } else {
+                    // 1. El ID Personalizado NO existe. Asignar el ID de sesión actual.
+                    dataUid = sessionUid; // Usar el UID actual para guardar los nuevos datos
+                    currentCustomId = requestedKey;
+                    
+                    // 2. Crear el mapeo público (Custom ID -> sessionUid)
+                    await setDoc(mappingRef, { uid: sessionUid, created_at: new Date() });
+
+                    document.getElementById('auth-status').innerText = `ID '${requestedKey}' establecido y guardado. Inicia sesión con este ID la próxima vez.`;
+                    
+                    // 3. Cargar los datos (que serán los iniciales, o los que estaban en la sesión actual)
+                    await loadDataFromUid(dataUid);
+                }
+                
+                document.getElementById('current-custom-id').innerText = `ID Activo: ${currentCustomId}`;
+                document.getElementById('current-custom-id').classList.remove('hidden');
+
+            } catch (e) {
+                console.error("Error en loadDataByCustomKey:", e);
+                customAlert(`Error al cargar/establecer el ID: ${e.message}`, 'Error');
             }
         }
 
@@ -441,30 +540,28 @@
                 db = getFirestore(app);
                 auth = getAuth(app);
 
-                // Autenticar: Usar token si está disponible, sino anónimo.
                 const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 
-                // NOTA: Para una aplicación web normal, aquí usaríamos signInWithPopup(GoogleAuthProvider)
-                // Pero en este entorno, usamos el token provisto para la autenticación persistente.
                 if (authToken) {
                     await signInWithCustomToken(auth, authToken);
                 } else {
                     await signInAnonymously(auth);
                 }
                 
-                // onAuthStateChanged se dispara después de la autenticación inicial
                 onAuthStateChanged(auth, async (user) => {
                     if (user) {
-                        userId = user.uid;
-                        document.getElementById('user-id-display').innerText = userId;
-                        document.getElementById('auth-status').innerText = user.isAnonymous ? 'Sesión Anónima (Persistente)' : 'Sesión de Usuario';
+                        sessionUid = user.uid; // El ID de sesión seguro
+                        dataUid = sessionUid;  // Inicialmente, dataUid es el sessionUid
                         
-                        await loadDataFromFirestore();
+                        // Si no hay custom ID, cargamos los datos privados asociados al UID (si existen)
+                        // Esto actúa como una caché si el usuario regresa sin un custom ID
+                        await loadDataFromUid(sessionUid, true); 
+
                     } else {
                         // Si falla, mostrar error de carga
-                        userId = null;
-                        document.getElementById('user-id-display').innerText = 'ERROR-NO-AUTH';
-                        document.getElementById('auth-status').innerText = 'Error de autenticación. Datos no guardados.';
+                        sessionUid = null;
+                        dataUid = null;
+                        document.getElementById('auth-status').innerText = 'Error de autenticación. No se puede guardar.';
                         document.getElementById('loading-overlay').classList.add('hidden');
                         document.getElementById('app').classList.remove('hidden');
                     }
@@ -725,7 +822,7 @@
         function renderModelSelector() {
             const selector = document.getElementById('select-model');
             // Guardar el ID seleccionado previamente
-            const currentSelectedId = parseFloat(selector.value);
+            const currentSelectedId = parseFloat(selector?.value);
             
             selector.innerHTML = models.map(m => `<option value="${m.id}">${m.name}</option>`).join('');
 
@@ -923,6 +1020,7 @@
         window.displayResults = displayResults;
         window.showSection = showSection;
         window.closeModal = closeModal;
+        window.loadDataByCustomKey = loadDataByCustomKey;
         
         // --- INICIALIZACIÓN ---
         window.onload = function() {
