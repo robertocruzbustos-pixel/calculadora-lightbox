@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora de Costos Lightbox 3D</title>
+    <title>Calculadora de Costos Lightbox 3D (Persistente)</title>
     
     <!-- Tailwind CSS CDN para un diseño responsive y moderno -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -46,22 +46,53 @@
         .remove-btn:hover {
             background-color: #fee2e2;
         }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(255, 255, 255, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 1000;
+        }
     </style>
 </head>
 <body class="p-4 md:p-8">
+    
+    <!-- Overlay de carga inicial -->
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500"></div>
+        <p class="mt-4 text-blue-600 font-semibold">Cargando datos y autenticando sesión...</p>
+    </div>
 
-    <div id="app" class="max-w-4xl mx-auto">
-        <h1 class="text-3xl font-bold text-gray-800 mb-6">LightBox 3D: Calculadora de Costos</h1>
+    <div id="app" class="max-w-4xl mx-auto hidden">
+        <div class="flex flex-col md:flex-row md:justify-between md:items-start mb-6 border-b pb-4">
+            <h1 class="text-3xl font-bold text-gray-800 mb-4 md:mb-0">LightBox 3D: Costos</h1>
+            
+            <div class="text-right text-sm text-gray-700 bg-blue-50 p-3 rounded-lg border border-blue-200">
+                <p class="font-semibold text-blue-600 mb-1">ID de Sesión Persistente</p>
+                <p class="mb-2 text-xs text-gray-600">Este código único guarda tus datos en la nube:</p>
+                <span id="user-id-display" class="font-mono text-xs text-blue-800 bg-blue-200 p-2 rounded-lg break-all">Cargando...</span>
+                <p id="auth-status" class="text-xs mt-2 font-medium"></p>
+                <button onclick="saveDataToFirestore(true)" id="save-button" class="mt-3 w-full py-1.5 px-3 bg-green-500 text-white font-semibold rounded-lg hover:bg-green-600 transition duration-150 ease-in-out">
+                    Guardar Ahora (Guardado Automático OK)
+                </button>
+            </div>
+        </div>
 
         <!-- Pestañas de Navegación -->
-        <div class="flex border-b border-gray-200 mb-6">
-            <button onclick="showSection('base-costs')" class="tab-btn p-3 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-blue-500 transition duration-150 ease-in-out" data-target="base-costs">
+        <div class="flex border-b border-gray-200 mb-6 overflow-x-auto">
+            <button onclick="showSection('base-costs')" class="tab-btn p-3 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-blue-500 transition duration-150 ease-in-out whitespace-nowrap" data-target="base-costs">
                 1. Costos Base (Fijos)
             </button>
-            <button onclick="showSection('model-input')" class="tab-btn p-3 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-blue-500 transition duration-150 ease-in-out" data-target="model-input">
+            <button onclick="showSection('model-input')" class="tab-btn p-3 text-sm font-medium text-gray-600 border-b-2 border-transparent hover:border-blue-500 transition duration-150 ease-in-out whitespace-nowrap" data-target="model-input">
                 2. Consumo por Modelo
             </button>
-            <button onclick="showSection('results')" class="tab-btn p-3 text-sm font-medium text-gray-600 border-b-2 border-blue-500 text-blue-600" data-target="results">
+            <button onclick="showSection('results')" class="tab-btn p-3 text-sm font-medium text-gray-600 border-b-2 border-blue-500 text-blue-600 whitespace-nowrap" data-target="results">
                 3. Resultado Final
             </button>
         </div>
@@ -76,9 +107,9 @@
                 <div class="space-y-2 mb-4 p-3 border rounded-lg">
                     <h3 class="font-medium text-gray-700">Filamento PLA (Gramos)</h3>
                     <label class="block text-sm text-gray-600">Costo de Compra (Total ARS):</label>
-                    <input type="number" id="input-pla-total" value="30000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="plaTotal" id="input-pla-total" value="30000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <label class="block text-sm text-gray-600">Cantidad Comprada (Gramos):</label>
-                    <input type="number" id="input-pla-qty" value="1000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="plaQty" id="input-pla-qty" value="1000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-pla-gram">Costo/g: $ 30.00</span>
                 </div>
 
@@ -87,9 +118,9 @@
                     <h3 class="font-medium text-gray-700">Tira LED Blanco (Metros comprados)</h3>
                     <p class="text-xs text-gray-500">Se asume una densidad de 120 LEDs por metro para el cálculo unitario.</p>
                     <label class="block text-sm text-gray-600">Costo de Compra (Total ARS):</label>
-                    <input type="number" id="input-led-total" value="1250" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="ledTotal" id="input-led-total" value="1250" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <label class="block text-sm text-gray-600">Cantidad Comprada (Metros):</label>
-                    <input type="number" id="input-led-qty" value="5" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="ledQty" id="input-led-qty" value="5" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-led-m">Costo/LED (120/m): $ X.XX</span>
                 </div>
                 
@@ -98,9 +129,9 @@
                     <h3 class="font-medium text-gray-700">Tira LED RGB (Metros comprados)</h3>
                     <p class="text-xs text-gray-500">Se asume una densidad de 60 LEDs por metro para el cálculo unitario.</p>
                     <label class="block text-sm text-gray-600">Costo de Compra (Total ARS):</label>
-                    <input type="number" id="input-led-rgb-total" value="1750" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="ledRgbTotal" id="input-led-rgb-total" value="1750" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <label class="block text-sm text-gray-600">Cantidad Comprada (Metros):</label>
-                    <input type="number" id="input-led-rgb-qty" value="5" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="ledRgbQty" id="input-led-rgb-qty" value="5" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-led-rgb-m">Costo/LED (60/m): $ X.XX</span>
                 </div>
 
@@ -108,9 +139,9 @@
                 <div class="space-y-2 mb-4 p-3 border rounded-lg">
                     <h3 class="font-medium text-gray-700">Fuente 12V (Unidades)</h3>
                     <label class="block text-sm text-gray-600">Costo de Compra (Total ARS):</label>
-                    <input type="number" id="input-ps-total" value="1200" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="psTotal" id="input-ps-total" value="1200" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <label class="block text-sm text-gray-600">Cantidad Comprada (Unidades):</label>
-                    <input type="number" id="input-ps-qty" value="1" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="psQty" id="input-ps-qty" value="1" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-ps-unit">Costo/u: $ 1200.00</span>
                 </div>
                 
@@ -118,9 +149,9 @@
                 <div class="space-y-2 p-3 border rounded-lg">
                     <h3 class="font-medium text-gray-700">Embalaje/Caja (Unidades)</h3>
                     <label class="block text-sm text-gray-600">Costo de Compra (Total ARS):</label>
-                    <input type="number" id="input-pkg-total" value="500" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="pkgTotal" id="input-pkg-total" value="500" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <label class="block text-sm text-gray-600">Cantidad Comprada (Unidades):</label>
-                    <input type="number" id="input-pkg-qty" value="1" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="pkgQty" id="input-pkg-qty" value="1" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-pkg-unit">Costo/u: $ 500.00</span>
                 </div>
             </div>
@@ -132,9 +163,9 @@
                 <div class="space-y-2 mb-4 p-3 border rounded-lg">
                     <h3 class="font-medium text-gray-700">Mano de Obra Directa (MOD)</h3>
                     <label class="block text-sm text-gray-600">Sueldo Asignado a M.O. (Mensual ARS):</label>
-                    <input type="number" id="input-mo-salary" value="400000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="moSalary" id="input-mo-salary" value="400000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <label class="block text-sm text-gray-600">Horas de Trabajo Mensual:</label>
-                    <input type="number" id="input-mo-hours" value="160" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="moHours" id="input-mo-hours" value="160" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-mo-min">Costo/min: $ 41.67</span>
                 </div>
 
@@ -142,9 +173,9 @@
                 <div class="space-y-2 mb-4 p-3 border rounded-lg">
                     <h3 class="font-medium text-gray-700">Costo de Energía (Impresión)</h3>
                     <label class="block text-sm text-gray-600">Costo por kWh (ARS):</label>
-                    <input type="number" id="input-energy-kwh" value="30" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="energyKwh" id="input-energy-kwh" value="30" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <label class="block text-sm text-gray-600">Consumo de Impresora (kW):</label>
-                    <input type="number" id="input-energy-kw" value="0.1" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="energyKw" id="input-energy-kw" value="0.1" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-energy-min">Costo/min: $ 0.05</span>
                 </div>
 
@@ -156,13 +187,13 @@
                     <!-- Detalle de Costos Fijos Mensuales -->
                     <div class="space-y-2 border-l-2 border-indigo-300 pl-3 py-1">
                         <label class="block text-sm text-gray-600">Renta o Hipoteca (ARS):</label>
-                        <input type="number" id="input-cif-renta" value="10000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                        <input type="number" data-key="cifRenta" id="input-cif-renta" value="10000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                         
                         <label class="block text-sm text-gray-600">Servicios (Agua, Internet, etc. ARS):</label>
-                        <input type="number" id="input-cif-servicios" value="3000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                        <input type="number" data-key="cifServicios" id="input-cif-servicios" value="3000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                         
                         <label class="block text-sm text-gray-600">Impuestos y Licencias (ARS):</label>
-                        <input type="number" id="input-cif-impuestos" value="2000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                        <input type="number" data-key="cifImpuestos" id="input-cif-impuestos" value="2000" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     </div>
 
                     <label class="block text-sm text-gray-600 pt-2">Total Costos Fijos Mensuales (ARS):</label>
@@ -170,7 +201,7 @@
                     <input type="number" id="input-cif-total" value="15000" disabled class="w-full p-2 border border-blue-300 rounded-lg bg-blue-50 font-bold text-gray-800">
 
                     <label class="block text-sm text-gray-600">Producción Estimada Mensual (Unidades):</label>
-                    <input type="number" id="input-cif-production" value="100" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="cifProduction" id="input-cif-production" value="100" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                     <span class="calculated-value" id="calc-cif-unit">CIF/Unidad: $ 150.00</span>
                 </div>
             </div>
@@ -200,10 +231,10 @@
 
                 <div class="pt-4 border-t border-gray-200">
                     <label class="block font-medium">Margen de Ganancia Deseado (%)</label>
-                    <input type="number" id="input-margin" value="35" oninput="displayResults()" class="w-full p-2 border border-gray-300 rounded-lg mb-4">
+                    <input type="number" data-key="margin" id="input-margin" value="35" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg mb-4">
 
                     <label class="block font-medium">Comisiones/Impuestos por Venta (%)</label>
-                    <input type="number" id="input-commissions" value="15" oninput="displayResults()" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" data-key="commissions" id="input-commissions" value="15" oninput="updateBaseCostsDisplay()" class="w-full p-2 border border-gray-300 rounded-lg">
                 </div>
             </div>
 
@@ -225,57 +256,237 @@
         </div>
     </div>
 
-    <script>
-        // --- CONSTANTES DE DENSIDAD DE LEDS (Necesarias solo para el cálculo de costo base unitario) ---
+    <script type="module">
+        // Importaciones de Firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Establecer nivel de log para depuración de Firestore
+        setLogLevel('Debug');
+        
+        // --- CONSTANTES GLOBALES Y DE FIREBASE ---
+        const LEDS_PER_SEGMENT = 3;    // Los sectores de corte son de 3 LEDs
         const WHITE_LED_DENSITY = 120; // LEDs por metro en tira blanca
         const RGB_LED_DENSITY = 60;    // LEDs por metro en tira RGB
-        const LEDS_PER_SEGMENT = 3;    // Los sectores de corte son de 3 LEDs
 
-        // --- DATA STRUCTURE (MATRIZ DE CONSUMO) ---
-        let models = [
+        let db;
+        let auth;
+        let userId = null;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialModels = [ // Modelos de ejemplo si no hay datos guardados
             {
                 id: Date.now(),
                 name: "Modelo Básico (Pequeño)",
                 ledType: 'white', 
-                consumption: {
-                    pla_grams: 80,
-                    led_quantity: 20, // 20 sectores * 3 LEDs = 60 LEDs
-                    mo_minutes: 15,
-                    print_hours: 3,   
-                    print_minutes: 0,
-                }
+                consumption: { pla_grams: 80, led_quantity: 20, mo_minutes: 15, print_hours: 3, print_minutes: 0, }
             },
             {
                 id: Date.now() + 1,
                 name: "Modelo Grande (RGB)",
                 ledType: 'rgb', 
-                consumption: {
-                    pla_grams: 200,
-                    led_quantity: 24, // 24 sectores * 3 LEDs = 72 LEDs
-                    mo_minutes: 25,
-                    print_hours: 8,   
-                    print_minutes: 0,
-                }
+                consumption: { pla_grams: 200, led_quantity: 24, mo_minutes: 25, print_hours: 8, print_minutes: 0, }
             }
         ];
+        
+        // Estado local de los modelos
+        let models = initialModels;
+
+        // --- FUNCIONES DE PERSISTENCIA DE DATOS (FIREBASE) ---
+
+        /**
+         * Retorna la referencia al documento Firestore privado del usuario.
+         */
+        function getDataDocRef() {
+            if (!db || !userId) {
+                console.error("Firebase no está inicializado o el usuario no está autenticado.");
+                return null;
+            }
+            // Ruta: /artifacts/{appId}/users/{userId}/cost_data/data_doc
+            return doc(db, 'artifacts', appId, 'users', userId, 'cost_data', 'data_doc');
+        }
+
+        /**
+         * Recolecta todos los valores de los inputs de costo base y los márgenes.
+         */
+        function gatherDataForSaving() {
+            const data = {};
+            // Recolectar inputs de Costos Base y Resultados (usando data-key)
+            document.querySelectorAll('[data-key]').forEach(input => {
+                data[input.dataset.key] = parseFloat(input.value) || 0;
+            });
+
+            return {
+                baseCostsInputs: data,
+                models: models
+            };
+        }
+
+        /**
+         * Guarda los datos actuales (costos base y modelos) en Firestore.
+         * @param {boolean} isManual - Indica si el guardado fue forzado por el usuario.
+         */
+        async function saveDataToFirestore(isManual = false) {
+            if (!userId) {
+                if (isManual) customAlert("Aún no se ha establecido la sesión. Por favor, espera un momento y vuelve a intentarlo.", "Guardado Fallido");
+                return;
+            }
+
+            const saveButton = document.getElementById('save-button');
+            const originalText = saveButton.innerHTML;
+            
+            try {
+                if (isManual) {
+                    saveButton.innerHTML = 'Guardando...';
+                    saveButton.disabled = true;
+                }
+
+                const dataToSave = gatherDataForSaving();
+                const docRef = getDataDocRef();
+                if (docRef) {
+                    await setDoc(docRef, dataToSave);
+                    if (isManual) {
+                        saveButton.innerHTML = '¡Guardado con Éxito!';
+                        setTimeout(() => {
+                            saveButton.innerHTML = originalText;
+                            saveButton.disabled = false;
+                        }, 2000);
+                    } else {
+                        saveButton.innerHTML = 'Guardado Automático OK';
+                    }
+                }
+            } catch (e) {
+                console.error("Error al guardar en Firestore:", e);
+                if (isManual) {
+                    customAlert(`Error al guardar los datos: ${e.message}`, 'Error de Guardado');
+                    saveButton.innerHTML = 'Error de Guardado';
+                    setTimeout(() => {
+                        saveButton.innerHTML = originalText;
+                        saveButton.disabled = false;
+                    }, 3000);
+                }
+            }
+        }
+
+        /**
+         * Carga los datos de Firestore y los aplica a la interfaz.
+         */
+        async function loadDataFromFirestore() {
+            if (!userId) return;
+
+            const docRef = getDataDocRef();
+            if (!docRef) return;
+
+            try {
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const data = docSnap.data();
+                    applyLoadedData(data);
+                    document.getElementById('auth-status').innerText = 'Datos personales cargados de la nube.';
+                } else {
+                    // Si no hay datos, inicializar con los ejemplos y guardar.
+                    console.log("No se encontraron datos para este usuario. Usando valores iniciales y guardando.");
+                    document.getElementById('auth-status').innerText = 'Usando valores iniciales. (Guardado automático).';
+                    // Aplicar valores por defecto a los inputs y luego guardar
+                    applyLoadedData({ 
+                        baseCostsInputs: gatherDataForSaving().baseCostsInputs, // Obtiene valores iniciales del HTML
+                        models: initialModels 
+                    });
+                    await saveDataToFirestore();
+                }
+            } catch (e) {
+                console.error("Error al cargar de Firestore:", e);
+                customAlert(`Error al cargar los datos: ${e.message}`, 'Error de Carga');
+            } finally {
+                // Ocultar overlay y mostrar app
+                document.getElementById('loading-overlay').classList.add('hidden');
+                document.getElementById('app').classList.remove('hidden');
+            }
+        }
+
+        /**
+         * Aplica los datos cargados a los inputs HTML y a la variable 'models'.
+         * @param {Object} data - Datos cargados de Firestore.
+         */
+        function applyLoadedData(data) {
+            // 1. Aplicar Costos Base e Inputs
+            if (data.baseCostsInputs) {
+                for (const key in data.baseCostsInputs) {
+                    const input = document.querySelector(`[data-key="${key}"]`);
+                    if (input) {
+                        input.value = data.baseCostsInputs[key];
+                    }
+                }
+            }
+            
+            // 2. Aplicar Modelos
+            if (Array.isArray(data.models)) {
+                models = data.models;
+            }
+
+            // 3. Re-renderizar todo
+            updateBaseCostsDisplay(); // Actualiza cálculos de costos unitarios
+            renderModelInputs();      // Vuelve a dibujar la lista de modelos
+            displayResults();         // Muestra el resultado
+        }
+
+        // --- FIREBASE INICIALIZACIÓN Y AUTENTICACIÓN ---
+
+        async function initFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                // Autenticar: Usar token si está disponible, sino anónimo.
+                const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                
+                // NOTA: Para una aplicación web normal, aquí usaríamos signInWithPopup(GoogleAuthProvider)
+                // Pero en este entorno, usamos el token provisto para la autenticación persistente.
+                if (authToken) {
+                    await signInWithCustomToken(auth, authToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+                
+                // onAuthStateChanged se dispara después de la autenticación inicial
+                onAuthStateChanged(auth, async (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('user-id-display').innerText = userId;
+                        document.getElementById('auth-status').innerText = user.isAnonymous ? 'Sesión Anónima (Persistente)' : 'Sesión de Usuario';
+                        
+                        await loadDataFromFirestore();
+                    } else {
+                        // Si falla, mostrar error de carga
+                        userId = null;
+                        document.getElementById('user-id-display').innerText = 'ERROR-NO-AUTH';
+                        document.getElementById('auth-status').innerText = 'Error de autenticación. Datos no guardados.';
+                        document.getElementById('loading-overlay').classList.add('hidden');
+                        document.getElementById('app').classList.remove('hidden');
+                    }
+                });
+
+            } catch (e) {
+                console.error("Error al inicializar Firebase:", e);
+                customAlert(`No se pudo conectar a la base de datos: ${e.message}`, 'Error de Conexión');
+                document.getElementById('loading-overlay').classList.add('hidden');
+                document.getElementById('app').classList.remove('hidden');
+            }
+        }
 
         // --- CORE LOGIC (VINCULACIÓN HOJAS) ---
         
-        /**
-         * Formatea un número como moneda ARS.
-         * @param {number} value - El valor a formatear.
-         * @returns {string} El valor formateado con '$' y dos decimales.
-         */
+        /** Formatea un número como moneda ARS. */
         const formatCurrency = (value) => {
             return `$ ${Math.max(0, value).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",")}`;
         };
 
-        /**
-         * Muestra el modal personalizado con un mensaje de alerta.
-         * @param {string} message - El mensaje a mostrar.
-         * @param {string} title - El título del modal.
-         */
-        function customAlert(message, title = "Error de Aplicación") {
+        /** Muestra el modal personalizado con un mensaje de alerta. */
+        function customAlert(message, title = "Atención") {
             document.getElementById('modal-title').innerText = title;
             document.getElementById('modal-message').innerText = message;
             document.getElementById('custom-modal').classList.remove('hidden');
@@ -409,7 +620,7 @@
             );
 
             // B. Costos Variables de Producción (MOD + Energía)
-            const costMOD = model.consumption.mo_minutes * costs.mo_min;
+            const costMOD = model.consumption.mo_min * costs.mo_min;
             const costEnergy = totalPrintMinutes * costs.energy_min;
             const costProduction = costMOD + costEnergy;
 
@@ -452,9 +663,16 @@
                 const modelCard = document.createElement('div');
                 modelCard.className = 'card bg-white p-6 rounded-lg border-l-4 border-blue-500 space-y-3';
                 
+                // Usamos una función lambda para asegurar que saveDataToFirestore se llama en la actualización
+                const getUpdateFunction = (key, isConsumption = true) => (
+                    isConsumption 
+                        ? `updateModelConsumption(${model.id}, '${key}', this.value); saveDataToFirestore();`
+                        : `updateModelName(${model.id}, this.value); renderModelSelector(); saveDataToFirestore();`
+                );
+
                 modelCard.innerHTML = `
                     <div class="flex justify-between items-center mb-4">
-                        <input type="text" id="name-${model.id}" value="${model.name}" oninput="updateModelName(${model.id}, this.value)" class="text-xl font-semibold text-gray-800 p-1 border-b border-gray-300 w-3/4">
+                        <input type="text" id="name-${model.id}" value="${model.name}" oninput="${getUpdateFunction('name', false)}" class="text-xl font-semibold text-gray-800 p-1 border-b border-gray-300 w-3/4">
                         <button onclick="removeModel(${model.id})" class="remove-btn" title="Eliminar Modelo">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-500 hover:text-red-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.86 10.36A2 2 0 0116.14 19H7.86a2 2 0 01-1.99-1.64L5 7m5-3h4a2 2 0 012 2v1m-6 0h6m-3 0V4"></path>
@@ -465,33 +683,33 @@
                     <!-- Selector de Tipo de LED -->
                     <div class="space-y-2">
                         <label class="block text-sm font-medium text-gray-700">Tipo de LED (Afecta el costo base):</label>
-                        <select id="led-type-${model.id}" onchange="updateModelLedType(${model.id}, this.value)" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
+                        <select id="led-type-${model.id}" onchange="updateModelLedType(${model.id}, this.value); saveDataToFirestore();" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500">
                             <option value="white" ${currentLedType === 'white' ? 'selected' : ''}>Tira LED Blanco (120/m)</option>
                             <option value="rgb" ${currentLedType === 'rgb' ? 'selected' : ''}>Tira LED RGB (60/m)</option>
                         </select>
                     </div>
 
                     <label class="block pt-3">Filamento PLA (gramos):</label>
-                    <input type="number" id="pla-${model.id}" value="${model.consumption.pla_grams}" oninput="updateModelConsumption(${model.id}, 'pla_grams', this.value)" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" id="pla-${model.id}" value="${model.consumption.pla_grams}" oninput="${getUpdateFunction('pla_grams')}" class="w-full p-2 border border-gray-300 rounded-lg">
                     
                     <label class="block">Tira LED (cantidad de SECTORES de 3 LEDs):</label>
-                    <input type="number" id="led-${model.id}" value="${model.consumption.led_quantity}" oninput="updateModelConsumption(${model.id}, 'led_quantity', this.value)" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" id="led-${model.id}" value="${model.consumption.led_quantity}" oninput="${getUpdateFunction('led_quantity')}" class="w-full p-2 border border-gray-300 rounded-lg">
                     <p class="text-xs text-gray-500 mt-1">Cada sector representa ${LEDS_PER_SEGMENT} LEDs. Ingresa el número de sectores de corte que lleva el modelo.</p>
                     
                     <label class="block pt-3 text-sm font-medium text-gray-700">Tiempos de Producción:</label>
                     
                     <label class="block text-sm text-gray-600">Mano de Obra Ensamblaje (minutos):</label>
-                    <input type="number" id="mo-${model.id}" value="${model.consumption.mo_minutes}" oninput="updateModelConsumption(${model.id}, 'mo_minutes', this.value)" class="w-full p-2 border border-gray-300 rounded-lg">
+                    <input type="number" id="mo-${model.id}" value="${model.consumption.mo_minutes}" oninput="${getUpdateFunction('mo_minutes')}" class="w-full p-2 border border-gray-300 rounded-lg">
                     
                     <!-- TIEMPO DE IMPRESIÓN (HORAS Y MINUTOS) -->
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm text-gray-600">Horas de Impresión:</label>
-                            <input type="number" id="print-h-${model.id}" value="${model.consumption.print_hours}" oninput="updateModelConsumption(${model.id}, 'print_hours', this.value)" class="w-full p-2 border border-gray-300 rounded-lg">
+                            <input type="number" id="print-h-${model.id}" value="${model.consumption.print_hours}" oninput="${getUpdateFunction('print_hours')}" class="w-full p-2 border border-gray-300 rounded-lg">
                         </div>
                         <div>
                             <label class="block text-sm text-gray-600">Minutos de Impresión:</label>
-                            <input type="number" id="print-m-${model.id}" value="${model.consumption.print_minutes}" oninput="updateModelConsumption(${model.id}, 'print_minutes', this.value)" class="w-full p-2 border border-gray-300 rounded-lg">
+                            <input type="number" id="print-m-${model.id}" value="${model.consumption.print_minutes}" oninput="${getUpdateFunction('print_minutes')}" class="w-full p-2 border border-gray-300 rounded-lg">
                         </div>
                     </div>
                 `;
@@ -596,7 +814,7 @@
 
         // --- MODEL MANIPULATION ---
 
-        function addModel() {
+        async function addModel() {
             const newModel = {
                 id: Date.now(),
                 name: "Nuevo Lightbox",
@@ -614,9 +832,10 @@
             // Seleccionar el nuevo modelo para que se muestre inmediatamente
             document.getElementById('select-model').value = newModel.id;
             displayResults();
+            await saveDataToFirestore();
         }
 
-        function removeModel(id) {
+        async function removeModel(id) {
             if (models.length <= 1) {
                 customAlert('Debe haber al menos un modelo para poder calcular los costos.', 'Alerta');
                 return;
@@ -624,9 +843,10 @@
             models = models.filter(m => m.id !== id);
             renderModelInputs();
             displayResults();
+            await saveDataToFirestore();
         }
 
-        function updateModelConsumption(id, key, value) {
+        async function updateModelConsumption(id, key, value) {
             const model = models.find(m => m.id === id);
             if (model) {
                 // Validación básica para asegurar números positivos y limitar minutos
@@ -640,6 +860,8 @@
                 }
             }
             displayResults();
+            // Guardar en Firestore después de cualquier cambio de consumo
+            await saveDataToFirestore(); 
         }
 
         function updateModelName(id, name) {
@@ -647,8 +869,7 @@
             if (model) {
                 model.name = name;
             }
-            renderModelSelector();
-            displayResults();
+            // El guardado se delega al oninput del renderModelInputs
         }
 
         /**
@@ -656,22 +877,24 @@
          * @param {number} id - ID del modelo.
          * @param {string} value - 'white' o 'rgb'.
          */
-        function updateModelLedType(id, value) {
+        async function updateModelLedType(id, value) {
             const model = models.find(m => m.id === id);
             if (model) {
                 model.ledType = value;
             }
             displayResults();
+            await saveDataToFirestore();
         }
         
         // --- UI UTILITIES ---
 
-        /** * Llama al cálculo de costos base y al resultado final. 
+        /** * Llama al cálculo de costos base y al resultado final, y guarda en Firestore. 
          * Se usa en los eventos oninput de la pestaña 1 y 3.
          */
-        function updateBaseCostsDisplay() {
+        async function updateBaseCostsDisplay() {
             calculateBaseUnitCosts();
             displayResults();
+            await saveDataToFirestore();
         }
 
         function showSection(targetId) {
@@ -689,22 +912,22 @@
             document.querySelector(`.tab-btn[data-target="${targetId}"]`).classList.remove('border-transparent', 'text-gray-600');
         }
 
+        // Exponer funciones globales para el HTML
+        window.saveDataToFirestore = saveDataToFirestore;
+        window.updateBaseCostsDisplay = updateBaseCostsDisplay;
+        window.addModel = addModel;
+        window.removeModel = removeModel;
+        window.updateModelConsumption = updateModelConsumption;
+        window.updateModelName = updateModelName;
+        window.updateModelLedType = updateModelLedType;
+        window.displayResults = displayResults;
+        window.showSection = showSection;
+        window.closeModal = closeModal;
+        
         // --- INICIALIZACIÓN ---
         window.onload = function() {
-            // 1. Calcular los costos base iniciales y preparar el selector
-            calculateBaseUnitCosts();
-
-            // 2. Renderizar la vista de modelos y resultados
-            renderModelInputs();
-            
-            // 3. Asegurarse de que el modelo principal esté seleccionado y visible
-            if (models.length > 0) {
-                document.getElementById('select-model').value = models[0].id;
-                displayResults();
-            }
-
-            // 4. Mostrar la pestaña de resultados por defecto al cargar (porque es la más importante)
-            showSection('results');
+            initFirebase();
+            showSection('results'); // Mostrar la pestaña de resultados por defecto al cargar
         };
 
     </script>
