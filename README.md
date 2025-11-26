@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora de Costos Lightbox 3D (ID Personalizado - FIX)</title>
+    <title>Calculadora de Costos Lightbox 3D (ID Personalizado - FIX V2)</title>
     
     <!-- Tailwind CSS CDN para un diseño responsive y moderno -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -52,7 +52,7 @@
             left: 0;
             width: 100%;
             height: 100%;
-            background-color: rgba(255, 255, 255, 0.8);
+            background-color: rgba(255, 255, 255, 0.95); /* Más opaco */
             display: flex;
             justify-content: center;
             align-items: center;
@@ -79,7 +79,7 @@
                 
                 <div class="flex flex-col sm:flex-row gap-2">
                     <input type="text" id="custom-id-input" placeholder="Ingresa tu ID corto" class="p-2 border border-gray-300 rounded-lg flex-grow text-sm">
-                    <button onclick="loadDataByCustomKey()" class="py-1.5 px-3 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 transition duration-150 ease-in-out whitespace-nowrap">
+                    <button onclick="loadDataByCustomKey()" id="load-id-button" class="py-1.5 px-3 bg-blue-500 text-white font-semibold rounded-lg hover:bg-blue-600 transition duration-150 ease-in-out whitespace-nowrap">
                         Cargar / Establecer ID
                     </button>
                 </div>
@@ -280,14 +280,16 @@
         const WHITE_LED_DENSITY = 120; // LEDs por metro en tira blanca
         const RGB_LED_DENSITY = 60;    // LEDs por metro en tira RGB
 
-        let db;
-        let auth;
-        let sessionUid = null; // El UID del usuario actualmente autenticado (largo)
-        let dataUid = null;    // El UID del usuario cuyos datos estamos cargando/guardando (puede ser igual a sessionUid o diferente si se carga por Custom ID)
-        let currentCustomId = null; // El ID corto que el usuario está usando
+        let db = null;
+        let auth = null;
+        let sessionUid = null; 
+        let dataUid = null;    
+        let currentCustomId = null; 
         
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // Asegurarse de que firebaseConfig sea un objeto, incluso si __firebase_config no existe o es inválido
         const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        
         const initialModels = [ // Modelos de ejemplo si no hay datos guardados
             {
                 id: Date.now(),
@@ -352,8 +354,8 @@
          * @param {boolean} isManual - Indica si el guardado fue forzado por el usuario.
          */
         async function saveDataToFirestore(isManual = false) {
-            if (!dataUid || !currentCustomId) {
-                if (isManual) customAlert("Aún no has establecido un 'ID de Datos Personalizado'. Por favor, ingrésalo y haz clic en 'Cargar / Establecer ID' primero.", "Guardado Fallido");
+            if (!dataUid || !currentCustomId || !db) {
+                if (isManual) customAlert("Asegúrate de que la DB esté conectada y hayas establecido un 'ID de Datos Personalizado'.", "Guardado Deshabilitado");
                 return;
             }
 
@@ -419,8 +421,9 @@
          * @param {boolean} isFirstLoad - Si es la carga inicial después de la autenticación.
          */
         async function loadDataFromUid(uid, isFirstLoad = false) {
-            if (!uid) {
-                if (isFirstLoad) hideOverlayAndShowApp('No se pudo obtener el ID de usuario. Trabajando sin persistencia.');
+            if (!db || !uid) {
+                // Esto solo debería pasar si initFirebase falló críticamente, pero lo manejamos
+                if (isFirstLoad) hideOverlayAndShowApp('DB no inicializada. Trabajando sin persistencia.');
                 return;
             }
 
@@ -465,8 +468,8 @@
          * Lógica principal para establecer o cargar un Custom ID.
          */
         async function loadDataByCustomKey() {
-            if (!sessionUid) {
-                customAlert("Por favor, espera a que se autentique la sesión inicial.", "Aún Cargando");
+            if (!sessionUid || !db) {
+                customAlert("Por favor, espera a que se conecte la DB y se autentique la sesión inicial.", "Aún Cargando");
                 return;
             }
 
@@ -488,6 +491,7 @@
 
             const mappingRef = getMappingDocRef(cleanKey);
             document.getElementById('auth-status').innerText = `Buscando datos de '${requestedKey}'...`;
+            document.getElementById('load-id-button').disabled = true;
             
             try {
                 const mappingSnap = await getDoc(mappingRef);
@@ -501,7 +505,6 @@
                     document.getElementById('auth-status').innerText = `ID encontrado. Cargando datos de '${requestedKey}'.`;
                     
                     // 2. Cargar los datos del UID encontrado
-                    // isFirstLoad=false ya que la app ya está mostrada.
                     await loadDataFromUid(dataUid, false); 
 
                 } else {
@@ -524,6 +527,8 @@
             } catch (e) {
                 console.error("Error en loadDataByCustomKey:", e);
                 customAlert(`Error al cargar/establecer el ID: ${e.message}`, 'Error');
+            } finally {
+                document.getElementById('load-id-button').disabled = false;
             }
         }
 
@@ -553,46 +558,74 @@
             displayResults();         // Muestra el resultado
         }
 
-        // --- FIREBASE INICIALIZACIÓN Y AUTENTICACIÓN (REFORZADA) ---
+        // --- FIREBASE INICIALIZACIÓN Y AUTENTICACIÓN (REFORZADA 2.0) ---
 
         async function initFirebase() {
             try {
-                // 1. Inicializar Firebase
+                // 1. Validación de Configuración (previene fallos en initializeApp)
+                if (!firebaseConfig || Object.keys(firebaseConfig).length === 0 || !firebaseConfig.apiKey) {
+                    throw new Error("La configuración de Firebase es incompleta o no está disponible. Guardado/Carga deshabilitado.");
+                }
+
+                // 2. Inicializar Firebase
                 const app = initializeApp(firebaseConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
-
-                // 2. Autenticar (temporal o con token)
+                
+                // 3. Autenticar y esperar el estado
                 const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 
+                // Intento de autenticación (si falla, onAuthStateChanged manejará el resultado)
                 if (authToken) {
-                    await signInWithCustomToken(auth, authToken);
+                    await signInWithCustomToken(auth, authToken).catch(e => {
+                        console.warn("Fallo en signInWithCustomToken. Intentando anónimo.", e);
+                        return signInAnonymously(auth);
+                    });
                 } else {
                     await signInAnonymously(auth);
                 }
                 
-                // 3. Listener para el estado de autenticación
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        sessionUid = user.uid; // El ID de sesión seguro
-                        dataUid = sessionUid;  // Inicialmente, dataUid es el sessionUid
-                        
-                        // loadDataFromUid ahora es responsable de llamar a hideOverlayAndShowApp(true)
-                        await loadDataFromUid(sessionUid, true); 
-
-                    } else {
-                        // Fallo en la autenticación después de la inicialización
-                        sessionUid = null;
-                        dataUid = null;
-                        hideOverlayAndShowApp('Error de autenticación. Trabajando en modo solo lectura/sin guardar.');
-                    }
+                // 4. Esperar el cambio de estado de autenticación
+                await new Promise((resolve, reject) => {
+                    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+                        unsubscribe(); 
+                        if (user) {
+                            sessionUid = user.uid; 
+                            dataUid = user.uid;  
+                            // loadDataFromUid will show the UI and status
+                            await loadDataFromUid(sessionUid, true); 
+                            resolve();
+                        } else {
+                            // Authentication failed state (no user)
+                            sessionUid = null;
+                            dataUid = null;
+                            reject(new Error("La autenticación de Firebase falló."));
+                        }
+                    }, (error) => {
+                         // Error listener for onAuthStateChanged
+                        reject(error);
+                    });
                 });
 
             } catch (e) {
-                // Si algo falla en la inicialización o autenticación crítica (e.g., config error)
-                console.error("Error crítico al inicializar Firebase:", e);
-                customAlert(`No se pudo conectar a la base de datos: ${e.message}`, 'Error de Conexión Crítico');
-                hideOverlayAndShowApp('Error de conexión. Trabajando en modo solo lectura/sin guardar.');
+                // --- FALLO CRÍTICO DE CONEXIÓN O CONFIGURACIÓN ---
+                console.error("Error crítico al inicializar o conectar con DB:", e);
+                
+                // 1. Inicializar UI con datos de ejemplo
+                models = initialModels;
+                applyLoadedData({ 
+                    baseCostsInputs: gatherDataForSaving().baseCostsInputs,
+                    models: models 
+                });
+                
+                // 2. Deshabilitar la funcionalidad de guardar/cargar
+                db = null; // Marcar la DB como no inicializada
+                dataUid = null; 
+                document.getElementById('save-button').disabled = true;
+                document.getElementById('load-id-button').disabled = true;
+                
+                // 3. Mostrar la aplicación inmediatamente con un mensaje de error.
+                hideOverlayAndShowApp(`ERROR CRÍTICO: ${e.message}. Trabajando sin conexión a DB (solo lectura).`);
             }
         }
 
@@ -950,7 +983,7 @@
             // Seleccionar el nuevo modelo para que se muestre inmediatamente
             document.getElementById('select-model').value = newModel.id;
             displayResults();
-            await saveDataToFirestore();
+            if (db) await saveDataToFirestore();
         }
 
         async function removeModel(id) {
@@ -961,7 +994,7 @@
             models = models.filter(m => m.id !== id);
             renderModelInputs();
             displayResults();
-            await saveDataToFirestore();
+            if (db) await saveDataToFirestore();
         }
 
         async function updateModelConsumption(id, key, value) {
@@ -979,7 +1012,7 @@
             }
             displayResults();
             // Guardar en Firestore después de cualquier cambio de consumo
-            await saveDataToFirestore(); 
+            if (db) await saveDataToFirestore(); 
         }
 
         function updateModelName(id, name) {
@@ -1001,7 +1034,7 @@
                 model.ledType = value;
             }
             displayResults();
-            await saveDataToFirestore();
+            if (db) await saveDataToFirestore();
         }
         
         // --- UI UTILITIES ---
@@ -1012,7 +1045,7 @@
         async function updateBaseCostsDisplay() {
             calculateBaseUnitCosts();
             displayResults();
-            await saveDataToFirestore();
+            if (db) await saveDataToFirestore();
         }
 
         function showSection(targetId) {
